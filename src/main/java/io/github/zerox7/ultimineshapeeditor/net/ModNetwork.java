@@ -44,7 +44,8 @@ public final class ModNetwork {
             if (slot < 0 || slot >= CustomShapes.SLOTS) return;
             // never trust the client: re-sanitize (the stream codec already does, this is belt and braces)
             ShapePattern in = payload.pattern();
-            ShapePattern pattern = ShapePattern.sanitized(in.name(), in.cells(), in.repeatFrom(), in.shiftRight(), in.shiftUp(), in.maxDepth());
+            ShapePattern pattern = ShapePattern.sanitized(in.name(), in.cells(), in.repeatFrom(), in.shiftRight(), in.shiftUp(), in.maxDepth(),
+                    in.loopLayers());
             CustomShapes updated = player.getData(ModAttachments.CUSTOM_SHAPES).with(slot, pattern);
             player.setData(ModAttachments.CUSTOM_SHAPES, updated);
             sync(player);

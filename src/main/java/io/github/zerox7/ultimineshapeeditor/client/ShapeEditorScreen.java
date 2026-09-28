@@ -51,12 +51,13 @@ public class ShapeEditorScreen extends Screen {
     private final int[] shiftRight = new int[SLOTS];
     private final int[] shiftUp = new int[SLOTS];
     private final int[] maxDepth = new int[SLOTS];
+    private final int[] loopMask = new int[SLOTS];   // earlier layers switched into the loop (bit n = layer n+1)
 
     private int slot = lastSlot;
     private int layer = 0;
     private int cell, gridX, gridY, gridW, panelX;
     private EditBox nameBox;
-    private Button prevLayerBtn, nextLayerBtn, repeatBtn, copyPrevBtn;
+    private Button prevLayerBtn, nextLayerBtn, repeatBtn, inLoopBtn, copyPrevBtn;
     private final List<Button> shiftButtons = new ArrayList<>();
     private Button depthMinusBtn, depthPlusBtn;
     private final List<Button> slotTabs = new ArrayList<>();
@@ -75,6 +76,7 @@ public class ShapeEditorScreen extends Screen {
             shiftRight[i] = saved.get(i).shiftRight();
             shiftUp[i] = saved.get(i).shiftUp();
             maxDepth[i] = saved.get(i).maxDepth();
+            loopMask[i] = saved.get(i).loopLayers();
         }
     }
 
@@ -124,6 +126,10 @@ public class ShapeEditorScreen extends Screen {
         int y = gridY + 20;
         repeatBtn = addRenderableWidget(Button.builder(repeatLabel(), b -> toggleRepeatHere())
                 .bounds(panelX, y, PANEL, 16).build());
+        inLoopBtn = addRenderableWidget(Button.builder(inLoopLabel(), b -> toggleInLoop())
+                .bounds(panelX, y + 18, PANEL, 16)
+                .tooltip(Tooltip.create(Component.translatable("ultimineshapeeditor.editor.in_loop_tip"))).build());
+        y += 18;
         // shift rows: [-] "Shift → +1" [+]
         shiftButtons.clear();
         shiftButtons.add(addRenderableWidget(Button.builder(Component.literal("-"), b -> changeShift(-1, 0))
@@ -217,7 +223,27 @@ public class ShapeEditorScreen extends Screen {
     }
 
     private boolean inLoop(int l) {
-        return repeats() && l >= repeatFrom[slot] && l <= loopEnd();
+        if (!repeats()) return false;
+        if (l < repeatFrom[slot]) return ShapePattern.inLoopMask(loopMask[slot], l);
+        return l <= loopEnd();
+    }
+
+    private Component inLoopLabel() {
+        String key;
+        if (!repeats()) key = "ultimineshapeeditor.editor.in_loop_na";
+        else if (layer >= repeatFrom[slot]) key = layer <= loopEnd()
+                ? "ultimineshapeeditor.editor.in_loop_always" : "ultimineshapeeditor.editor.in_loop_na";
+        else key = ShapePattern.inLoopMask(loopMask[slot], layer)
+                ? "ultimineshapeeditor.editor.in_loop_yes" : "ultimineshapeeditor.editor.in_loop_no";
+        return Component.translatable(key);
+    }
+
+    /** For a layer before the repeat start: switch whether it is part of every repeat. */
+    private void toggleInLoop() {
+        if (!repeats() || layer >= repeatFrom[slot]) return;
+        loopMask[slot] ^= 1 << layer;
+        markDirty();
+        updateButtons();
     }
 
     private Component repeatLabel() {
@@ -228,6 +254,8 @@ public class ShapeEditorScreen extends Screen {
     /** Start the repeating section at the current layer, or turn repeating off if it already starts here. */
     private void toggleRepeatHere() {
         repeatFrom[slot] = repeatFrom[slot] == layer ? ShapePattern.NO_REPEAT : layer;
+        // only layers before the repeat start can be switched into the loop
+        loopMask[slot] = repeats() ? loopMask[slot] & ((1 << repeatFrom[slot]) - 1) : 0;
         markDirty();
         updateButtons();
     }
@@ -265,6 +293,8 @@ public class ShapeEditorScreen extends Screen {
     private void updateButtons() {
         if (repeatBtn == null) return;
         repeatBtn.setMessage(repeatLabel());
+        inLoopBtn.setMessage(inLoopLabel());
+        inLoopBtn.active = repeats() && layer < repeatFrom[slot];
         prevLayerBtn.active = layer > 0;
         nextLayerBtn.active = layer < LAYERS - 1;
         copyPrevBtn.active = layer > 0;
@@ -279,6 +309,22 @@ public class ShapeEditorScreen extends Screen {
         }
         depthMinusBtn.active = maxDepth[slot] != ShapePattern.NO_LIMIT;
         depthPlusBtn.active = maxDepth[slot] < ShapePattern.MAX_DEPTH_LIMIT;
+    }
+
+    /** The loop layers as short text, e.g. "1, 3-5". */
+    private String loopLayersText() {
+        List<Integer> layers = new ArrayList<>();
+        for (int l = 0; l < LAYERS; l++) if (inLoop(l)) layers.add(l + 1);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < layers.size(); ) {
+            int j = i;
+            while (j + 1 < layers.size() && layers.get(j + 1) == layers.get(j) + 1) j++;
+            if (sb.length() > 0) sb.append(", ");
+            sb.append(layers.get(i));
+            if (j > i) sb.append('–').append(layers.get(j));
+            i = j + 1;
+        }
+        return sb.toString();
     }
 
     private static String signed(int v) {
@@ -313,6 +359,7 @@ public class ShapeEditorScreen extends Screen {
         shiftRight[slot] = 0;
         shiftUp[slot] = 0;
         maxDepth[slot] = ShapePattern.NO_LIMIT;
+        loopMask[slot] = 0;
         layer = 0;
         markDirty();
         rebuildWidgets(); // refresh the name box
@@ -323,7 +370,8 @@ public class ShapeEditorScreen extends Screen {
     }
 
     private ShapePattern currentPattern() {
-        return ShapePattern.sanitized(names[slot], current(), repeatFrom[slot], shiftRight[slot], shiftUp[slot], maxDepth[slot]);
+        return ShapePattern.sanitized(names[slot], current(), repeatFrom[slot], shiftRight[slot], shiftUp[slot], maxDepth[slot],
+                loopMask[slot]);
     }
 
     private void copyCode() {
@@ -344,6 +392,7 @@ public class ShapeEditorScreen extends Screen {
         shiftRight[slot] = pasted.get().shiftRight();
         shiftUp[slot] = pasted.get().shiftUp();
         maxDepth[slot] = pasted.get().maxDepth();
+        loopMask[slot] = pasted.get().loopLayers();
         layer = 0;
         markDirty();
         rebuildWidgets(); // refresh the name box
@@ -354,7 +403,7 @@ public class ShapeEditorScreen extends Screen {
         CustomShapes updated = ClientPatternCache.get();
         for (int i = 0; i < SLOTS; i++) {
             if (!dirty[i]) continue;
-            ShapePattern p = ShapePattern.sanitized(names[i], cells.get(i), repeatFrom[i], shiftRight[i], shiftUp[i], maxDepth[i]);
+            ShapePattern p = ShapePattern.sanitized(names[i], cells.get(i), repeatFrom[i], shiftRight[i], shiftUp[i], maxDepth[i], loopMask[i]);
             PacketDistributor.sendToServer(new UpdatePatternPayload(i, p));
             updated = updated.with(i, p);
         }
@@ -449,13 +498,13 @@ public class ShapeEditorScreen extends Screen {
         // shift values between their - + buttons
         int shiftColor = repeats() ? 0xFFFFFF : 0x707070;
         g.drawCenteredString(font, Component.translatable("ultimineshapeeditor.editor.shift_right", signed(shiftRight[slot])),
-                panelX + PANEL / 2, gridY + 42, shiftColor);
-        g.drawCenteredString(font, Component.translatable("ultimineshapeeditor.editor.shift_up", signed(shiftUp[slot])),
                 panelX + PANEL / 2, gridY + 60, shiftColor);
+        g.drawCenteredString(font, Component.translatable("ultimineshapeeditor.editor.shift_up", signed(shiftUp[slot])),
+                panelX + PANEL / 2, gridY + 78, shiftColor);
         Component depthText = maxDepth[slot] == ShapePattern.NO_LIMIT
                 ? Component.translatable("ultimineshapeeditor.editor.max_depth_off")
                 : Component.translatable("ultimineshapeeditor.editor.max_depth", maxDepth[slot]);
-        g.drawCenteredString(font, depthText, panelX + PANEL / 2, gridY + 78, 0xFFFFFF);
+        g.drawCenteredString(font, depthText, panelX + PANEL / 2, gridY + 96, 0xFFFFFF);
 
         drawHelp(g);
 
@@ -539,10 +588,8 @@ public class ShapeEditorScreen extends Screen {
                 x, y, 0xFFFFFF);
         y += 12;
         if (repeats()) {
-            int from = repeatFrom[slot] + 1, to = loopEnd() + 1;
-            Component loop = from == to
-                    ? Component.translatable("ultimineshapeeditor.editor.repeat_summary_one", from, signed(shiftRight[slot]), signed(shiftUp[slot]))
-                    : Component.translatable("ultimineshapeeditor.editor.repeat_summary", from, to, signed(shiftRight[slot]), signed(shiftUp[slot]));
+            Component loop = Component.translatable("ultimineshapeeditor.editor.repeat_summary", loopLayersText(),
+                    signed(shiftRight[slot]), signed(shiftUp[slot]));
             for (FormattedCharSequence line : font.split(loop.copy().withStyle(ChatFormatting.AQUA), w)) {
                 g.drawString(font, line, x, y, 0xFFFFFF);
                 y += 10;

@@ -46,9 +46,9 @@ public final class PatternMath {
      * The blocks to mine: the mined block first, then only cells that pass {@code check}, at most {@code max} in total.
      * <ol>
      *   <li>Every drawn layer once, layer by layer, nearest cells first.</li>
-     *   <li>If the pattern repeats: the section from {@code repeatFrom} to the last drawn layer again and again,
-     *       each time one section-length deeper and moved by the shift. Stops as soon as a whole repeat has
-     *       nothing left to mine.</li>
+     *   <li>If the pattern repeats: the loop layers (earlier layers switched into the loop, then {@code repeatFrom}
+     *       to the last drawn layer) again and again behind them, each repeat moved by the shift. Stops as soon as
+     *       a whole repeat has nothing left to mine.</li>
      * </ol>
      * Nothing deeper than the pattern's max depth (if set) is ever included.
      */
@@ -73,26 +73,32 @@ public final class PatternMath {
         }
         if (!pattern.repeats()) return out;
 
-        // 2. the repeating section
-        int from = pattern.repeatFrom();
-        int length = pattern.loopEnd() - from + 1;
-        List<int[]> loop = new ArrayList<>(); // {right, up, depth}
-        if (from == 0) loop.add(new int[]{0, 0, 0}); // the mined block is part of layer 1, so it repeats too
-        for (int p : cells) {
-            int d = ShapePattern.depth(p);
-            if (d >= from) loop.add(new int[]{ShapePattern.right(p), ShapePattern.up(p), d});
+        // 2. the repeating section: the loop layers (included earlier layers + repeatFrom..last layer), in order.
+        //    Repeat n puts them one after another behind the drawn layers, moved n times by the shift.
+        List<Integer> loopLayers = pattern.loopLayerList();
+        int length = loopLayers.size();
+        int end = pattern.loopEnd();
+        List<int[]> loop = new ArrayList<>(); // {right, up, position inside the loop}
+        for (int j = 0; j < length; j++) {
+            int layer = loopLayers.get(j);
+            if (layer == 0) loop.add(new int[]{0, 0, j}); // the mined block is part of layer 1, so it repeats too
+            for (int p : cells) {
+                if (ShapePattern.depth(p) == layer) loop.add(new int[]{ShapePattern.right(p), ShapePattern.up(p), j});
+            }
         }
         if (loop.isEmpty()) return out; // repeat set on empty layers: nothing to repeat
 
         for (int n = 1; n <= MAX_REPEATS; n++) {
-            if (!pattern.depthAllowed(from + n * length)) break; // this whole repeat is past the max depth
+            int start = end + 1 + (n - 1) * length; // depth of this repeat's first layer
+            if (!pattern.depthAllowed(start)) break; // this whole repeat is past the max depth
             int before = out.size();
             for (int[] c : loop) {
-                if (!pattern.depthAllowed(c[2] + n * length)) continue;
+                int depth = start + c[2];
+                if (!pattern.depthAllowed(depth)) continue;
                 BlockPos pos = b.apply(origin,
                         c[0] + n * pattern.shiftRight(),
                         c[1] + n * pattern.shiftUp(),
-                        c[2] + n * length);
+                        depth);
                 if (check.test(pos)) {
                     out.add(pos);
                     if (out.size() >= max) return out;

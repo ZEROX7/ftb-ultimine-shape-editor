@@ -21,9 +21,13 @@ import java.util.*;
  * ({@code shiftRight}, {@code shiftUp}) compared to the one before, and repeating stops when a whole repeat
  * has nothing left to mine (the same idea as FTB Ultimine's own tunnels).
  * <p>
+ * {@code loopLayers}: layers before {@code repeatFrom} can also be put into the loop (one bit per layer, bit 0 =
+ * layer 1). The loop is then those layers plus {@code repeatFrom}..last layer, in layer order.
+ * <p>
  * {@code maxDepth}: if not {@link #NO_LIMIT}, nothing deeper than that many layers is mined, repeating or not.
  */
-public record ShapePattern(String name, List<Integer> cells, int repeatFrom, int shiftRight, int shiftUp, int maxDepth) {
+public record ShapePattern(String name, List<Integer> cells, int repeatFrom, int shiftRight, int shiftUp, int maxDepth,
+                           int loopLayers) {
     public static final int RADIUS = 7;                       // grid is SIZE x SIZE
     public static final int SIZE = RADIUS * 2 + 1;            // 15
     public static final int MAX_DEPTH = 15;                   // layers 0..14
@@ -34,12 +38,13 @@ public record ShapePattern(String name, List<Integer> cells, int repeatFrom, int
     public static final int NO_LIMIT = 0;
     public static final int MAX_DEPTH_LIMIT = 999;
     public static final int ORIGIN = pack(0, 0, 0);
-    public static final ShapePattern EMPTY = new ShapePattern("", List.of(), NO_REPEAT, 0, 0, NO_LIMIT);
+    public static final ShapePattern EMPTY = new ShapePattern("", List.of(), NO_REPEAT, 0, 0, NO_LIMIT, 0);
 
     private static final String CODE_V1 = "UXS1:"; // [nameLen][name][bits]
     private static final String CODE_V2 = "UXS2:"; // [flags: 1 = repeat layer 1][nameLen][name][bits]
     private static final String CODE_V3 = "UXS3:"; // [repeatFrom+1][shiftRight+64][shiftUp+64][nameLen][name][bits]
     private static final String CODE_V4 = "UXS4:"; // as v3 with [maxDepth hi][maxDepth lo] after shiftUp
+    private static final String CODE_V5 = "UXS5:"; // as v4 with [loopLayers hi][loopLayers lo] after maxDepth
 
     public static final Codec<ShapePattern> CODEC = RecordCodecBuilder.create(i -> i.group(
             Codec.STRING.optionalFieldOf("name", "").forGetter(ShapePattern::name),
@@ -47,17 +52,32 @@ public record ShapePattern(String name, List<Integer> cells, int repeatFrom, int
             Codec.INT.optionalFieldOf("repeat_from", NO_REPEAT).forGetter(ShapePattern::repeatFrom),
             Codec.INT.optionalFieldOf("shift_right", 0).forGetter(ShapePattern::shiftRight),
             Codec.INT.optionalFieldOf("shift_up", 0).forGetter(ShapePattern::shiftUp),
-            Codec.INT.optionalFieldOf("max_depth", NO_LIMIT).forGetter(ShapePattern::maxDepth)
+            Codec.INT.optionalFieldOf("max_depth", NO_LIMIT).forGetter(ShapePattern::maxDepth),
+            Codec.INT.optionalFieldOf("loop_layers", 0).forGetter(ShapePattern::loopLayers)
     ).apply(i, ShapePattern::sanitized));
 
-    public static final StreamCodec<ByteBuf, ShapePattern> STREAM_CODEC = StreamCodec.composite(
-            ByteBufCodecs.stringUtf8(MAX_NAME * 4), ShapePattern::name,
-            ByteBufCodecs.VAR_INT.apply(ByteBufCodecs.list(MAX_CELLS)), ShapePattern::cells,
-            ByteBufCodecs.VAR_INT, ShapePattern::repeatFrom,
-            ByteBufCodecs.VAR_INT, ShapePattern::shiftRight,
-            ByteBufCodecs.VAR_INT, ShapePattern::shiftUp,
-            ByteBufCodecs.VAR_INT, ShapePattern::maxDepth,
-            ShapePattern::sanitized
+    private static final StreamCodec<ByteBuf, String> NAME_CODEC = ByteBufCodecs.stringUtf8(MAX_NAME * 4);
+    private static final StreamCodec<ByteBuf, List<Integer>> CELLS_CODEC = ByteBufCodecs.VAR_INT.apply(ByteBufCodecs.list(MAX_CELLS));
+
+    /** Network format. Written by hand because it has more fields than StreamCodec.composite takes. */
+    public static final StreamCodec<ByteBuf, ShapePattern> STREAM_CODEC = StreamCodec.of(
+            (buf, p) -> {
+                NAME_CODEC.encode(buf, p.name());
+                CELLS_CODEC.encode(buf, p.cells());
+                ByteBufCodecs.VAR_INT.encode(buf, p.repeatFrom());
+                ByteBufCodecs.VAR_INT.encode(buf, p.shiftRight());
+                ByteBufCodecs.VAR_INT.encode(buf, p.shiftUp());
+                ByteBufCodecs.VAR_INT.encode(buf, p.maxDepth());
+                ByteBufCodecs.VAR_INT.encode(buf, p.loopLayers());
+            },
+            buf -> sanitized(
+                    NAME_CODEC.decode(buf),
+                    CELLS_CODEC.decode(buf),
+                    ByteBufCodecs.VAR_INT.decode(buf),
+                    ByteBufCodecs.VAR_INT.decode(buf),
+                    ByteBufCodecs.VAR_INT.decode(buf),
+                    ByteBufCodecs.VAR_INT.decode(buf),
+                    ByteBufCodecs.VAR_INT.decode(buf))
     );
 
     public ShapePattern {
@@ -67,7 +87,7 @@ public record ShapePattern(String name, List<Integer> cells, int repeatFrom, int
 
     /** Builds a pattern from untrusted input: trims the name, drops invalid/duplicate cells, clamps the settings. */
     public static ShapePattern sanitized(String name, Collection<Integer> cells, int repeatFrom, int shiftRight, int shiftUp,
-                                         int maxDepth) {
+                                         int maxDepth, int loopLayers) {
         String n = name == null ? "" : name.replaceAll("[\\p{Cntrl}§]", "").strip();
         if (n.length() > MAX_NAME) n = n.substring(0, MAX_NAME);
         List<Integer> c = cells.stream()
@@ -77,7 +97,8 @@ public record ShapePattern(String name, List<Integer> cells, int repeatFrom, int
         int sr = from == NO_REPEAT ? 0 : clampShift(shiftRight);
         int su = from == NO_REPEAT ? 0 : clampShift(shiftUp);
         int md = maxDepth <= 0 ? NO_LIMIT : Math.min(maxDepth, MAX_DEPTH_LIMIT);
-        return new ShapePattern(n, c, from, sr, su, md);
+        int loop = from == NO_REPEAT ? 0 : loopLayers & ((1 << from) - 1); // only layers before the repeat start
+        return new ShapePattern(n, c, from, sr, su, md, loop);
     }
 
     public boolean hasDepthLimit() {
@@ -121,6 +142,20 @@ public record ShapePattern(String name, List<Integer> cells, int repeatFrom, int
         return Math.max(repeatFrom, lastLayer());
     }
 
+    /** Is this layer (before the repeat start) switched into the loop? */
+    public static boolean inLoopMask(int loopLayers, int layer) {
+        return layer >= 0 && layer < 31 && (loopLayers & (1 << layer)) != 0;
+    }
+
+    /** The layers that make up one repeat, in order: included earlier layers, then repeatFrom..loopEnd. */
+    public List<Integer> loopLayerList() {
+        List<Integer> out = new ArrayList<>();
+        if (!repeats()) return out;
+        for (int l = 0; l < repeatFrom; l++) if (inLoopMask(loopLayers, l)) out.add(l);
+        for (int l = repeatFrom; l <= loopEnd(); l++) out.add(l);
+        return out;
+    }
+
     // ---- cell packing ----
 
     public static int pack(int right, int up, int depth) {
@@ -155,24 +190,27 @@ public record ShapePattern(String name, List<Integer> cells, int repeatFrom, int
         BitSet bits = new BitSet(MAX_CELLS);
         for (int c : cells) bits.set(c);
         byte[] cellBytes = bits.toByteArray();
-        byte[] out = new byte[6 + nameBytes.length + cellBytes.length];
+        byte[] out = new byte[8 + nameBytes.length + cellBytes.length];
         out[0] = (byte) (repeatFrom + 1);
         out[1] = (byte) (shiftRight + 64);
         out[2] = (byte) (shiftUp + 64);
         out[3] = (byte) (maxDepth >> 8);
         out[4] = (byte) maxDepth;
-        out[5] = (byte) nameBytes.length;
-        System.arraycopy(nameBytes, 0, out, 6, nameBytes.length);
-        System.arraycopy(cellBytes, 0, out, 6 + nameBytes.length, cellBytes.length);
-        return CODE_V4 + Base64.getUrlEncoder().withoutPadding().encodeToString(out);
+        out[5] = (byte) (loopLayers >> 8);
+        out[6] = (byte) loopLayers;
+        out[7] = (byte) nameBytes.length;
+        System.arraycopy(nameBytes, 0, out, 8, nameBytes.length);
+        System.arraycopy(cellBytes, 0, out, 8 + nameBytes.length, cellBytes.length);
+        return CODE_V5 + Base64.getUrlEncoder().withoutPadding().encodeToString(out);
     }
 
-    /** Reads a share code; older codes (UXS1-UXS3) are still accepted. */
+    /** Reads a share code; older codes (UXS1-UXS4) are still accepted. */
     public static Optional<ShapePattern> fromShareCode(String code) {
         if (code == null) return Optional.empty();
         code = code.strip();
         int version;
-        if (code.startsWith(CODE_V4)) version = 4;
+        if (code.startsWith(CODE_V5)) version = 5;
+        else if (code.startsWith(CODE_V4)) version = 4;
         else if (code.startsWith(CODE_V3)) version = 3;
         else if (code.startsWith(CODE_V2)) version = 2;
         else if (code.startsWith(CODE_V1)) version = 1;
@@ -185,14 +223,15 @@ public record ShapePattern(String name, List<Integer> cells, int repeatFrom, int
             return Optional.empty();
         }
 
-        int header = switch (version) { case 4 -> 5; case 3 -> 3; case 2 -> 1; default -> 0; };
+        int header = switch (version) { case 5 -> 7; case 4 -> 5; case 3 -> 3; case 2 -> 1; default -> 0; };
         if (data.length < header + 1) return Optional.empty();
-        int repeatFrom = NO_REPEAT, shiftRight = 0, shiftUp = 0, maxDepth = NO_LIMIT;
+        int repeatFrom = NO_REPEAT, shiftRight = 0, shiftUp = 0, maxDepth = NO_LIMIT, loopLayers = 0;
         if (version >= 3) {
             repeatFrom = (data[0] & 0xFF) - 1;
             shiftRight = (data[1] & 0xFF) - 64;
             shiftUp = (data[2] & 0xFF) - 64;
-            if (version == 4) maxDepth = ((data[3] & 0xFF) << 8) | (data[4] & 0xFF);
+            if (version >= 4) maxDepth = ((data[3] & 0xFF) << 8) | (data[4] & 0xFF);
+            if (version >= 5) loopLayers = ((data[5] & 0xFF) << 8) | (data[6] & 0xFF);
         } else if (version == 2 && (data[0] & 1) != 0) {
             repeatFrom = 0; // v2 "infinite" meant: repeat layer 1
         }
@@ -205,6 +244,6 @@ public record ShapePattern(String name, List<Integer> cells, int repeatFrom, int
         List<Integer> cells = new ArrayList<>();
         for (int i = bits.nextSetBit(0); i >= 0; i = bits.nextSetBit(i + 1)) cells.add(i);
         if (version == 2 && repeatFrom == 0) cells.removeIf(p -> depth(p) > 0); // v2 ignored deeper layers
-        return Optional.of(sanitized(n, cells, repeatFrom, shiftRight, shiftUp, maxDepth)); // clamps everything
+        return Optional.of(sanitized(n, cells, repeatFrom, shiftRight, shiftUp, maxDepth, loopLayers)); // clamps everything
     }
 }

@@ -24,6 +24,9 @@ Open it with **K** (rebindable under Controls → FTB Ultimine) or the `/shapeed
   layer then repeats forever, deeper and deeper into the block, until a whole repeat has nothing left to mine
   (like Ultimine's own tunnels, and still limited by `max_blocks`). Layers before it are mined once, so you can
   build e.g. a wide entrance followed by an endless tunnel. Press the button again on that layer to stop repeating.
+  - **In loop** (for layers before the repeat start): set it to *yes* to put that layer into every repeat too.
+    The loop is then all "in loop" layers in their normal order, e.g. layers 1, 3 and 4 in the loop gives
+    1‑2‑3‑4 once, then 1‑3‑4, 1‑3‑4, … Layers set to *no* are mined only once at the start.
   - Draw only layer 1 and repeat from it: a tunnel of that cross-section.
   - Repeat a 3-layer section: a pattern that is 3 layers long, looped.
 - **Shift → / Shift ↑** (−7 to +7) move each repeat compared to the one before. On a one-layer loop that's
