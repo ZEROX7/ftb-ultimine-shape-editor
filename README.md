@@ -1,4 +1,6 @@
-# FTB Ultimine Shape Editor (NeoForge 1.21.1)
+# FTB Ultimine Shape Editor (NeoForge 26.1)
+
+> This is the **Minecraft 26.1** branch (26.1, 26.1.1 and 26.1.2). The Minecraft 1.21.1 version lives on the `main` branch.
 
 An addon for FTB Ultimine that lets every player draw their own Ultimine shapes in-game.
 
@@ -51,34 +53,31 @@ the shape menu on your screen.
 
 ## Build
 
-Needs JDK 21 and an internet connection.
+Needs **JDK 25** and an internet connection.
 
 ```
 ./gradlew build        (Windows: gradlew.bat build)
 ```
 
-The jar lands in `build/libs/`. Put it in your `mods` folder alongside FTB Ultimine, FTB Library and Architectury.
+The jar lands in `build/libs/`. Put it in your `mods` folder alongside FTB Ultimine and FTB Library (26.1 builds).
 It must be installed on **both** the client and the server.
 
 `./gradlew runClient` starts a dev game with Ultimine loaded, for testing.
 
 ## Releasing (GitHub Actions → CurseForge)
 
-`.github/workflows/build.yml` builds the mod on every push (download the jar from the workflow run) and
-publishes a release when you push a version tag:
+`.github/workflows/build.yml` on this branch builds the mod on every push and publishes a release for a tag that
+starts with **`26.1-`**, e.g. `26.1-1.0.1` (plain tags like `1.0.1` belong to the 1.21.1 branch):
 
-```
-git tag v1.0.1            # or: git tag -a v1.0.1 -m "Loop update"  (the message goes on top of the changelog)
-git push origin v1.0.1
-```
+- **From IntelliJ:** Git → New Tag… (`26.1-1.0.1`), then Git → Push… with **Push tags** ticked.
+- **From GitHub:** Actions → *Build & Publish (26.1)* → **Run workflow**, pick this branch, type an existing tag.
 
-The version comes from the tag, the changelog is made from the commit messages since the previous tag
-(add `[skip changelog]` to a commit message to leave it out), and the jar is uploaded to CurseForge and to a
-GitHub Release. Tags containing `alpha` or `beta` are uploaded as alpha/beta files.
+The version comes from the tag (`26.1-1.0.1` → `1.0.1`), the changelog from the commit messages since the previous
+`26.1-` tag (add `[skip changelog]` to a commit message to leave it out). The jar is uploaded to CurseForge for
+Minecraft 26.1, 26.1.1 and 26.1.2 (with the same `mod-publish-plugin` FTB uses) and to a GitHub Release.
+Tags containing `alpha` or `beta` are uploaded as alpha/beta files.
 
-One-time setup under **Settings → Secrets and variables → Actions**:
-- secret `CURSEFORGE_TOKEN`: an API token from https://legacy.curseforge.com/account/api-tokens
-- variable `CURSEFORGE_PROJECT_ID`: the Project ID from your CurseForge project page
+It uses the same repo secret `CURSEFORGE_TOKEN` and variable `CURSEFORGE_PROJECT_ID` as the 1.21.1 branch.
 
 ## Bugs and ideas
 

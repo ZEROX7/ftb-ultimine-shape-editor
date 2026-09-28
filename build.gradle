@@ -1,17 +1,20 @@
 plugins {
     id 'java-library'
     id 'idea'
-    id 'net.neoforged.moddev' version '2.0.147'
+    id 'net.neoforged.moddev' version '2.0.141'
+    // CurseForge uploads (same plugin FTB uses for their 26.1 releases)
+    id 'me.modmuss50.mod-publish-plugin' version '1.1.0'
 }
 
 version = mod_version
 group = mod_group_id
 
 base {
-    archivesName = 'ftb-ultimine-shape-editor-neoforge-1.21.1'
+    archivesName = 'ftb-ultimine-shape-editor-neoforge-26.1'
 }
 
-java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+// Minecraft 26.1 needs Java 25
+java.toolchain.languageVersion = JavaLanguageVersion.of(25)
 
 repositories {
     maven {
@@ -19,20 +22,12 @@ repositories {
         url = 'https://maven.ftb.dev/releases'
         content { includeGroup 'dev.ftb.mods' }
     }
-    maven {
-        name = 'Architectury'
-        url = 'https://maven.architectury.dev/'
-        content { includeGroup 'dev.architectury' }
-    }
 }
 
 neoForge {
     version = project.neo_version
 
-    parchment {
-        mappingsVersion = project.parchment_mappings_version
-        minecraftVersion = project.parchment_minecraft_version
-    }
+    // Minecraft 26.1 is shipped without obfuscation, so no Parchment mappings are needed.
 
     runs {
         client {
@@ -52,10 +47,9 @@ neoForge {
 }
 
 dependencies {
-    // FTB Ultimine and the libraries it needs at runtime (needed in the dev client too)
+    // FTB Ultimine and the library it needs at runtime (needed in the dev client too)
     implementation "dev.ftb.mods:ftb-ultimine-neoforge:${ftb_ultimine_version}"
     implementation "dev.ftb.mods:ftb-library-neoforge:${ftb_library_version}"
-    implementation "dev.architectury:architectury-neoforge:${architectury_version}"
 }
 
 var generateModMetadata = tasks.register('generateModMetadata', ProcessResources) {
@@ -84,4 +78,26 @@ neoForge.ideSyncTask generateModMetadata
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
+}
+
+// CurseForge upload, used by the release workflow: ./gradlew publishMods
+// Needs the env vars CURSEFORGE_TOKEN and CURSEFORGE_PROJECT_ID (and optionally CHANGELOG);
+// without a token it only does a dry run.
+publishMods {
+    dryRun = providers.environmentVariable("CURSEFORGE_TOKEN").getOrNull() == null
+    file = tasks.named('jar').flatMap { it.archiveFile }
+    displayName = "${mod_name} ${project.version} (MC 26.1)"
+    version = "${project.version}+mc26.1"
+    changelog = providers.environmentVariable("CHANGELOG").orElse("See the GitHub release for changes.")
+    def v = project.version.toString()
+    type = v.contains("alpha") ? ALPHA : (v.contains("beta") ? BETA : STABLE)
+    modLoaders.add("neoforge")
+
+    curseforge {
+        accessToken = providers.environmentVariable("CURSEFORGE_TOKEN")
+        projectId = providers.environmentVariable("CURSEFORGE_PROJECT_ID").orElse("0")
+        supported_minecraft_versions.split(",").each { minecraftVersions.add(it.trim()) }
+        javaVersions.add(JavaVersion.VERSION_25)
+        requires("ftb-ultimine-forge")
+    }
 }
