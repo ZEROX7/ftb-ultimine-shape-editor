@@ -1,0 +1,158 @@
+# Minecraft 26.1 branch.
+#
+# Builds the mod on every push / pull request (the jar is attached to the workflow run),
+# and publishes a release for a tag that starts with "26.1-", e.g. 26.1-1.0.0.
+# (The 1.21.1 branch uses plain tags like 1.0.0, so the two branches never mix up their releases.)
+#
+# Two ways to release:
+#   a) Create a tag and push it (IntelliJ: Git > New Tag... "26.1-1.0.1", then Git > Push with "Push tags" ticked).
+#   b) On GitHub: Actions > "Build & Publish (26.1)" > Run workflow, choose this branch, type an existing tag.
+#
+# A release:
+#   - builds the jar with the version taken from the tag (26.1-1.0.1 -> 1.0.1)
+#   - writes a changelog from the commit messages since the previous 26.1-* tag
+#     (commits containing "[skip changelog]" are left out; an annotated tag's message is put on top)
+#   - uploads the jar to CurseForge for Minecraft 26.1, 26.1.1 and 26.1.2 (via the mod-publish-plugin in
+#     build.gradle, the same tool FTB uses), and creates a GitHub Release
+#
+# Uses the same repository secret/variable as the 1.21.1 branch: CURSEFORGE_TOKEN and CURSEFORGE_PROJECT_ID.
+
+name: Build & Publish (26.1)
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["26.1-*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release this existing tag (e.g. 26.1-1.0.0). Leave empty to just build."
+        required: false
+        default: ""
+
+permissions:
+  contents: write # needed to create GitHub Releases
+
+env:
+  TAG_PREFIX: "26.1-"
+  # the tag being released: typed in when run by hand, or the pushed tag; empty for normal builds
+  RELEASE_TAG: ${{ inputs.tag || (startsWith(github.ref, 'refs/tags/') && github.ref_name) || '' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release_tag: ${{ env.RELEASE_TAG }}
+      game_versions: ${{ steps.version.outputs.game_versions }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG || github.ref }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Work out the version
+        id: version
+        run: |
+          if [ -n "$RELEASE_TAG" ]; then
+            if [[ "$RELEASE_TAG" != "$TAG_PREFIX"* ]]; then
+              echo "::error::Tag '$RELEASE_TAG' is not a 26.1 release tag (must start with $TAG_PREFIX)"
+              exit 1
+            fi
+            VERSION="${RELEASE_TAG#"$TAG_PREFIX"}"
+            VERSION="${VERSION#v}"
+          else
+            BASE=$(grep '^mod_version=' gradle.properties | cut -d= -f2 | tr -d '[:space:]')
+            VERSION="${BASE}-build.${GITHUB_RUN_NUMBER}"
+          fi
+          GAME_VERSIONS=$(grep '^supported_minecraft_versions=' gradle.properties | cut -d= -f2 | tr -d '[:space:]')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "game_versions=$GAME_VERSIONS" >> "$GITHUB_OUTPUT"
+          echo "Building version $VERSION for Minecraft $GAME_VERSIONS"
+
+      - name: Build
+        run: |
+          chmod +x gradlew
+          ./gradlew build -Pmod_version="${{ steps.version.outputs.version }}" --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ftb-ultimine-shape-editor-26.1-${{ steps.version.outputs.version }}
+          path: build/libs/*.jar
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    if: needs.build.outputs.release_tag != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.build.outputs.release_tag }}
+          fetch-depth: 0 # full history + tags, for the changelog
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Write changelog
+        env:
+          TAG: ${{ needs.build.outputs.release_tag }}
+        run: |
+          PREV=$(git describe --tags --abbrev=0 --match "${TAG_PREFIX}*" "${TAG}^" 2>/dev/null || true)
+          RANGE="${PREV:+$PREV..}$TAG"
+
+          {
+            # an annotated tag's message goes on top
+            if [ "$(git cat-file -t "$TAG")" = "tag" ]; then
+              git tag -l --format='%(contents)' "$TAG" | sed '/-----BEGIN PGP/,$d'
+              echo
+            fi
+
+            echo "### Changes"
+            CHANGES=$(git log "$RANGE" --no-merges --pretty='format:- %s' | grep -vi '\[skip changelog\]' || true)
+            if [ -n "$CHANGES" ]; then echo "$CHANGES"; else echo "- Minor fixes and improvements"; fi
+
+            if [ -n "$PREV" ]; then
+              echo
+              echo "Full list: https://github.com/${GITHUB_REPOSITORY}/compare/${PREV}...${TAG}"
+            fi
+          } > CHANGELOG_RELEASE.md
+
+          cat CHANGELOG_RELEASE.md
+          {
+            echo 'CHANGELOG<<CHANGELOG_EOF'
+            cat CHANGELOG_RELEASE.md
+            echo 'CHANGELOG_EOF'
+          } >> "$GITHUB_ENV"
+
+      - name: Build and upload to CurseForge
+        env:
+          CURSEFORGE_TOKEN: ${{ secrets.CURSEFORGE_TOKEN }}
+          CURSEFORGE_PROJECT_ID: ${{ vars.CURSEFORGE_PROJECT_ID }}
+        run: |
+          if [ -z "$CURSEFORGE_TOKEN" ] || [ -z "$CURSEFORGE_PROJECT_ID" ]; then
+            echo "::error::Set the CURSEFORGE_TOKEN secret and the CURSEFORGE_PROJECT_ID variable in the repo settings"
+            exit 1
+          fi
+          chmod +x gradlew
+          ./gradlew build publishMods -Pmod_version="${{ needs.build.outputs.version }}" --stacktrace
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.build.outputs.release_tag }}
+          name: FTB Ultimine Shape Editor ${{ needs.build.outputs.version }} (MC 26.1)
+          body_path: CHANGELOG_RELEASE.md
+          files: build/libs/*.jar
+          prerelease: ${{ contains(needs.build.outputs.version, 'alpha') || contains(needs.build.outputs.version, 'beta') }}
