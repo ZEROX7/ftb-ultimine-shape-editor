@@ -3,7 +3,7 @@ plugins {
     id 'idea'
     id 'net.neoforged.moddev' version '2.0.141'
     // CurseForge uploads (same plugin FTB uses for their 26.1 releases)
-    id 'me.modmuss50.mod-publish-plugin' version '1.1.0'
+    id 'me.modmuss50.mod-publish-plugin' version '2.2.1'
 }
 
 version = mod_version
@@ -98,6 +98,10 @@ publishMods {
         projectId = providers.environmentVariable("CURSEFORGE_PROJECT_ID").orElse("0")
         supported_minecraft_versions.split(",").each { minecraftVersions.add(it.trim()) }
         javaVersions.add(JavaVersion.VERSION_25)
+        // CurseForge's "Environment" group (required by CurseForge since plugin 2.0):
+        // the mod must be installed on both client and server
+        client = true
+        server = true
         requires("ftb-ultimine-forge")
     }
 }
