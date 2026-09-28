@@ -62,6 +62,24 @@ It must be installed on **both** the client and the server.
 
 `./gradlew runClient` starts a dev game with Ultimine loaded, for testing.
 
+## Releasing (GitHub Actions → CurseForge)
+
+`.github/workflows/build.yml` builds the mod on every push (download the jar from the workflow run) and
+publishes a release when you push a version tag:
+
+```
+git tag v1.0.1            # or: git tag -a v1.0.1 -m "Loop update"  (the message goes on top of the changelog)
+git push origin v1.0.1
+```
+
+The version comes from the tag, the changelog is made from the commit messages since the previous tag
+(add `[skip changelog]` to a commit message to leave it out), and the jar is uploaded to CurseForge and to a
+GitHub Release. Tags containing `alpha` or `beta` are uploaded as alpha/beta files.
+
+One-time setup under **Settings → Secrets and variables → Actions**:
+- secret `CURSEFORGE_TOKEN`: an API token from https://legacy.curseforge.com/account/api-tokens
+- variable `CURSEFORGE_PROJECT_ID`: the Project ID from your CurseForge project page
+
 ## Bugs and ideas
 
 Found a bug or have an idea? Open an issue at
