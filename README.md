@@ -1,6 +1,6 @@
 # FTB Ultimine Shape Editor (NeoForge 26.1)
 
-> This is the **Minecraft 26.1** branch (26.1, 26.1.1 and 26.1.2). The Minecraft 1.21.1 version lives on the `main` branch.
+> This is the **Minecraft 26.1** branch (26.1, 26.1.1 and 26.1.2). The Minecraft 1.21.1 version lives on the `1.21.1` branch.
 
 An addon for FTB Ultimine that lets every player draw their own Ultimine shapes in-game.
 
