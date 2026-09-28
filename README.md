@@ -51,34 +51,6 @@ each one mines is looked up from the mining player's own saved shapes. Two small
 slots a player hasn't defined: one skips them when the server cycles your shape, the other leaves them out of
 the shape menu on your screen.
 
-## Build
-
-Needs **JDK 25** and an internet connection.
-
-```
-./gradlew build        (Windows: gradlew.bat build)
-```
-
-The jar lands in `build/libs/`. Put it in your `mods` folder alongside FTB Ultimine and FTB Library (26.1 builds).
-It must be installed on **both** the client and the server.
-
-`./gradlew runClient` starts a dev game with Ultimine loaded, for testing.
-
-## Releasing (GitHub Actions → CurseForge)
-
-`.github/workflows/build.yml` on this branch builds the mod on every push and publishes a release for a tag that
-starts with **`26.1-`**, e.g. `26.1-1.0.1` (plain tags like `1.0.1` belong to the 1.21.1 branch):
-
-- **From IntelliJ:** Git → New Tag… (`26.1-1.0.1`), then Git → Push… with **Push tags** ticked.
-- **From GitHub:** Actions → *Build & Publish (26.1)* → **Run workflow**, pick this branch, type an existing tag.
-
-The version comes from the tag (`26.1-1.0.1` → `1.0.1`), the changelog from the commit messages since the previous
-`26.1-` tag (add `[skip changelog]` to a commit message to leave it out). The jar is uploaded to CurseForge for
-Minecraft 26.1, 26.1.1 and 26.1.2 (with the same `mod-publish-plugin` FTB uses) and to a GitHub Release.
-Tags containing `alpha` or `beta` are uploaded as alpha/beta files.
-
-It uses the same repo secret `CURSEFORGE_TOKEN` and variable `CURSEFORGE_PROJECT_ID` as the 1.21.1 branch.
-
 ## Bugs and ideas
 
 Found a bug or have an idea? Open an issue at
@@ -86,4 +58,5 @@ https://github.com/ZEROX7/ftb-ultimine-shape-editor/issues
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+All Rights Reserved. You may use the mod and include it in modpacks, but not re-upload, redistribute or publish
+modified versions of it without permission. See [LICENSE](LICENSE) for the full terms.
